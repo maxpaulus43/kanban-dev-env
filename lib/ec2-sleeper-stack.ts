@@ -38,6 +38,8 @@ export class Ec2SleeperStack extends cdk.Stack {
     );
 
     // Build and start the Kanban dev container
+    // NOTE: The first build may take 15-20 minutes due to the dotfiles image
+    // installing homebrew, neovim, fish, mise, and all CLI tools.
     userData.addCommands(
       'cd /opt/kanban',
       'docker compose build',
@@ -70,7 +72,7 @@ export class Ec2SleeperStack extends cdk.Stack {
       userData,
       blockDevices: [{
         deviceName: '/dev/sda1',
-        volume: ec2.BlockDeviceVolume.ebs(20, {
+        volume: ec2.BlockDeviceVolume.ebs(50, {
           volumeType: ec2.EbsDeviceVolumeType.GP3,
         }),
       }],

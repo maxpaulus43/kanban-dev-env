@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   kanban-dev:
     build:
@@ -11,3 +9,4 @@ services:
     restart: always
     environment:
       - NODE_ENV=production
+    command: ['npx', '--yes', 'kanban@latest', '--host', '0.0.0.0', '--port', '3484']
