@@ -34,7 +34,9 @@ export class Ec2SleeperStack extends cdk.Stack {
         // Step 3: Pull pre-built image and run Kanban dev container
         userData.addCommands(
             "mkdir -p /home/ubuntu/workspace",
+            "mkdir -p /home/ubuntu/.cline",
             "chown 1000:1000 /home/ubuntu/workspace",
+            "chown 1000:1000 /home/ubuntu/.cline",
             // Pull pre-built image from GHCR (public, no auth needed)
             "docker pull ghcr.io/maxpaulus43/dotfiles:latest",
             // Run Kanban dev container
@@ -43,6 +45,7 @@ export class Ec2SleeperStack extends cdk.Stack {
             "  --net=host \\",
             "  --user max \\",
             "  -v /home/ubuntu/workspace:/home/max/workspace \\",
+            "  -v /home/ubuntu/.cline:/home/max/.cline \\",
             "  --restart always \\",
             "  -e NODE_ENV=production \\",
             "  ghcr.io/maxpaulus43/dotfiles:latest \\",
