@@ -1,6 +1,7 @@
 import * as path from 'path';
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
+import * as iam from 'aws-cdk-lib/aws-iam';
 import * as cloudwatch from 'aws-cdk-lib/aws-cloudwatch';
 import * as cw_actions from 'aws-cdk-lib/aws-cloudwatch-actions';
 import * as s3assets from 'aws-cdk-lib/aws-s3-assets';
@@ -64,6 +65,8 @@ export class Ec2SleeperStack extends cdk.Stack {
     // 1. Create the Instance
     const instance = new ec2.Instance(this, 'DevMachine', {
       vpc,
+      vpcSubnets: { subnetType: ec2.SubnetType.PUBLIC },
+      associatePublicIpAddress: true,
       instanceType: new ec2.InstanceType('t3.medium'), // 2 vCPU, 4 GB RAM
       machineImage: ec2.MachineImage.fromSsmParameter(
         '/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id',
@@ -80,6 +83,13 @@ export class Ec2SleeperStack extends cdk.Stack {
 
     // Grant the instance permission to read the Docker asset from S3
     dockerAsset.grantRead(instance.role);
+
+    // Allow SSM Session Manager access for debugging
+    instance.role.addManagedPolicy(
+      iam.ManagedPolicy.fromAwsManagedPolicyName('AmazonSSMManagedInstanceCore'),
+    );
+
+    new cdk.CfnOutput(this, 'InstanceId', { value: instance.instanceId });
 
     // 2. The "Auto-Stop" Alarm
     const cpuMetric = new cloudwatch.Metric({
