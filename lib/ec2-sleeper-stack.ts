@@ -1,10 +1,8 @@
-import * as path from "path";
 import * as cdk from "aws-cdk-lib";
 import * as ec2 from "aws-cdk-lib/aws-ec2";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import * as cw_actions from "aws-cdk-lib/aws-cloudwatch-actions";
-import * as s3assets from "aws-cdk-lib/aws-s3-assets";
 import { Construct } from "constructs";
 
 export class Ec2SleeperStack extends cdk.Stack {
@@ -13,18 +11,13 @@ export class Ec2SleeperStack extends cdk.Stack {
 
         const vpc = new ec2.Vpc(this, "DevVpc", { maxAzs: 2 });
 
-        // Bundle the docker/ directory as an S3 asset (Dockerfile + docker-compose.yml)
-        const dockerAsset = new s3assets.Asset(this, "DockerAsset", {
-            path: path.join(__dirname, "..", "docker"),
-        });
-
         // Build userData script
         const userData = ec2.UserData.forLinux();
 
         // Step 1: Install prerequisites
         userData.addCommands(
             "apt-get update",
-            "apt-get install -y ca-certificates curl gnupg unzip",
+            "apt-get install -y ca-certificates curl gnupg",
         );
 
         // Step 2: Install Docker via official Docker apt repository
@@ -38,34 +31,22 @@ export class Ec2SleeperStack extends cdk.Stack {
             "systemctl enable --now docker",
         );
 
-        // Step 3: Install AWS CLI v2 (needed for S3 asset download)
-        userData.addCommands(
-            'curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "/tmp/awscliv2.zip"',
-            "unzip -q /tmp/awscliv2.zip -d /tmp",
-            "/tmp/aws/install",
-            "rm -rf /tmp/aws /tmp/awscliv2.zip",
-        );
-
-        // Download and extract the Docker asset from S3
-        const assetPath = userData.addS3DownloadCommand({
-            bucket: dockerAsset.bucket,
-            bucketKey: dockerAsset.s3ObjectKey,
-        });
-
-        userData.addCommands(
-            "mkdir -p /opt/kanban",
-            `unzip -o ${assetPath} -d /opt/kanban`,
-        );
-
-        // Build and start the Kanban dev container
-        // NOTE: The first build may take 15-20 minutes due to the dotfiles image
-        // installing homebrew, neovim, fish, mise, and all CLI tools.
+        // Step 3: Pull pre-built image and run Kanban dev container
         userData.addCommands(
             "mkdir -p /home/ubuntu/workspace",
             "chown 1000:1000 /home/ubuntu/workspace",
-            "cd /opt/kanban",
-            "docker compose build",
-            "docker compose up -d",
+            // Pull pre-built image from GHCR (public, no auth needed)
+            "docker pull ghcr.io/maxpaulus43/dotfiles:latest",
+            // Run Kanban dev container
+            "docker run -d \\",
+            "  --name kanban-dev \\",
+            "  --net=host \\",
+            "  --user max \\",
+            "  -v /home/ubuntu/workspace:/home/max/workspace \\",
+            "  --restart always \\",
+            "  -e NODE_ENV=production \\",
+            '  ghcr.io/maxpaulus43/dotfiles:latest \\',
+            '  /bin/bash -lc "npx --yes kanban@latest --host 0.0.0.0 --port 3484"',
         );
 
         const TS_AUTHKEY = process.env.TS_AUTHKEY;
@@ -111,9 +92,6 @@ export class Ec2SleeperStack extends cdk.Stack {
                 },
             ],
         });
-
-        // Grant the instance permission to read the Docker asset from S3
-        dockerAsset.grantRead(instance.role);
 
         // Allow SSM Session Manager access for debugging
         instance.role.addManagedPolicy(
