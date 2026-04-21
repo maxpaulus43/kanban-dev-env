@@ -40,7 +40,7 @@ This project uses the [AWS CDK](https://aws.amazon.com/cdk/) (TypeScript) to dep
 │  │  VPC (2 AZs)                                     │   │
 │  │                                                  │   │
 │  │  ┌────────────────────────────────────────────┐  │   │
-│  │  │  EC2  t3.medium  Ubuntu 24.04  20 GB gp3   │  │   │
+│  │  │  EC2  t3.medium  Ubuntu 24.04  50 GB gp3   │  │   │
 │  │  │                                            │  │   │
 │  │  │  ┌──────────────┐  ┌──────────────────┐    │  │   │
 │  │  │  │ kanban-dev   │  │   tailscale      │    │  │   │
@@ -77,7 +77,7 @@ kanban-dev-env/
 ├── lib/
 │   └── ec2-sleeper-stack.ts   # CDK stack (VPC, EC2, CloudWatch alarm)
 ├── docker/
-│   ├── Dockerfile             # Node 22 image running kanban@latest on port 3484
+│   ├── Dockerfile             # Dotfiles-based dev environment (ubuntu:22.04 + fish, neovim, mise, homebrew)
 │   └── docker-compose.yml     # Compose service; mounts /home/ubuntu into the container
 ├── cdk.json                   # CDK app config
 ├── package.json
@@ -140,7 +140,7 @@ This creates the CDK toolkit stack in your AWS account/region (S3 bucket, ECR re
 npx cdk deploy
 ```
 
-CDK will synthesize a CloudFormation template, upload the `docker/` directory as an S3 asset, and create the VPC, EC2 instance, and CloudWatch alarm. The first boot takes **3–5 minutes** while Docker builds the Kanban image.
+CDK will synthesize a CloudFormation template, upload the `docker/` directory as an S3 asset, and create the VPC, EC2 instance, and CloudWatch alarm. The first boot takes **15–20 minutes** while Docker builds the dotfiles-based dev image (homebrew, neovim, fish, mise, and all CLI tools). Subsequent boots are much faster since Docker caches the built image.
 
 ---
 
@@ -196,7 +196,7 @@ The easiest way to start the instance from a mobile device is via the **AWS Cons
 | Mechanism | Detail |
 |---|---|
 | **Auto-stop alarm** | CloudWatch stops the instance after 3 consecutive 5-minute periods below 5% CPU (~15 min idle). You pay for compute only while the instance is running. |
-| **EBS persists on stop** | The 20 GB gp3 root volume is retained when stopped. You pay the gp3 storage rate (~$0.08/GB-month) continuously, but this is negligible compared to a running instance. |
+| **EBS persists on stop** | The 50 GB gp3 root volume is retained when stopped. You pay the gp3 storage rate (~$0.08/GB-month) continuously, but this is negligible compared to a running instance. |
 | **Spot instances** | For non-critical workloads, switching to a Spot instance can cut compute cost by 60–90%. `ec2.Instance` does not natively support Spot; you would need a Launch Template with `InstanceMarketOptions` set to `spot`. |
 | **Right-sizing** | `t3.medium` (2 vCPU, 4 GB) is a burstable type. If Kanban's workload is consistently lightweight, `t3.small` (2 vCPU, 2 GB) may be sufficient and costs roughly half as much. |
 
@@ -206,30 +206,47 @@ The easiest way to start the instance from a mobile device is via the **AWS Cons
 
 ### `docker/Dockerfile`
 
+The Dockerfile builds a full personal dev environment based on [maxpaulus43/dotfiles](https://github.com/maxpaulus43/dotfiles). It installs fish shell, neovim, mise, homebrew, and all associated CLI tools via the dotfiles bootstrap script.
+
 ```dockerfile
-FROM node:22-bookworm-slim
+FROM ubuntu:22.04
 
-# Installs git, curl, openssh-client, sudo
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl openssh-client sudo ...
+ARG DEBIAN_FRONTEND=noninteractive
 
-# Creates a non-root user 'max' (UID/GID 1000) with passwordless sudo
-RUN groupadd --gid 1000 max && useradd --uid 1000 --gid 1000 \
-    --create-home --shell /bin/bash max \
+# Install base dependencies and generate locale
+RUN apt-get update && apt-get install -y \
+    git curl wget sudo locales build-essential \
+    && rm -rf /var/lib/apt/lists/* \
+    && locale-gen en_US.UTF-8
+
+ENV LANG=en_US.UTF-8
+ENV LANGUAGE=en_US:en
+ENV LC_ALL=en_US.UTF-8
+
+# Create non-root user 'max' with passwordless sudo
+RUN useradd -m -s /bin/bash max \
     && echo 'max ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 USER max
 WORKDIR /home/max
 
-# Launches kanban@latest on port 3484
-CMD ["npx", "--yes", "kanban@latest", "--port", "3484"]
+# Add mise shims and homebrew to PATH
+ENV PATH="/home/max/.local/share/mise/shims:/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:${PATH}"
+ENV SHELL="fish"
+
+# Clone and bootstrap the dotfiles (installs fish, neovim, mise, brew packages, etc.)
+RUN git clone https://github.com/maxpaulus43/dotfiles.git ~/c/dotfiles
+RUN cd ~/c/dotfiles && chmod +x bin/bootstrap.sh && bin/bootstrap.sh
+
+CMD ["fish"]
 ```
 
-**Customization:**
+**Key points:**
 
-- **Pin a Kanban version:** Replace `kanban@latest` with e.g. `kanban@1.2.3` in the `CMD`.
-- **Change the port:** Update `3484` in the `CMD` above (the Compose file does not publish ports explicitly since it uses `network_mode: host`).
-- **Add dev tools:** Insert `apt-get install` lines for any packages you need available inside the container.
+- The default `CMD` is `fish` (the dotfiles shell). The docker-compose.yml `command` overrides this to run Kanban.
+- The first Docker build takes **15–20 minutes** because the bootstrap script installs homebrew, neovim, fish, mise, and all configured CLI tools. Subsequent builds use Docker's layer cache.
+- **Pin a Kanban version:** Replace `kanban@latest` with e.g. `kanban@1.2.3` in the Compose `command`.
+- **Change the port:** Update `3484` in the Compose `command` (the Compose file uses `network_mode: host`, so no port-mapping is needed).
 
 ### `docker/docker-compose.yml`
 
@@ -245,10 +262,12 @@ services:
     restart: always             # Auto-restarts after EC2 stop/start cycles
     environment:
       - NODE_ENV=production
+    command: ['npx', '--yes', 'kanban@latest', '--host', '0.0.0.0', '--port', '3484']
 ```
 
 **Key points:**
 
+- The `command` overrides the Dockerfile's default `CMD` (`fish`) to launch Kanban on port 3484 instead.
 - `network_mode: host` means port 3484 on the container is directly reachable on the EC2 host's network interfaces, including the Tailscale interface — no port-mapping needed.
 - The volume `/home/ubuntu:/home/max` persists Kanban's boards, configuration, and any other data written to `~` across container and instance restarts.
 - `restart: always` ensures Kanban comes back up automatically each time the EC2 instance starts.
