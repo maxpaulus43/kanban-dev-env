@@ -1,0 +1,13 @@
+version: '3.8'
+
+services:
+  kanban-dev:
+    build:
+      context: .
+    container_name: kanban-dev
+    network_mode: host
+    volumes:
+      - /home/ubuntu:/home/max
+    restart: always
+    environment:
+      - NODE_ENV=production
