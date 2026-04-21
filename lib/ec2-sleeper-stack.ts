@@ -45,8 +45,8 @@ export class Ec2SleeperStack extends cdk.Stack {
             "  -v /home/ubuntu/workspace:/home/max/workspace \\",
             "  --restart always \\",
             "  -e NODE_ENV=production \\",
-            '  ghcr.io/maxpaulus43/dotfiles:latest \\',
-            '  /bin/bash -lc "npx --yes kanban@latest --host 0.0.0.0 --port 3484"',
+            "  ghcr.io/maxpaulus43/dotfiles:latest \\",
+            '  /bin/bash -lc "npx --yes kanban@latest --port 3484"',
         );
 
         const TS_AUTHKEY = process.env.TS_AUTHKEY;
