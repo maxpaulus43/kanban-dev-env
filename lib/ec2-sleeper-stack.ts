@@ -61,6 +61,8 @@ export class Ec2SleeperStack extends cdk.Stack {
         // NOTE: The first build may take 15-20 minutes due to the dotfiles image
         // installing homebrew, neovim, fish, mise, and all CLI tools.
         userData.addCommands(
+            "mkdir -p /home/ubuntu/workspace",
+            "chown 1000:1000 /home/ubuntu/workspace",
             "cd /opt/kanban",
             "docker compose build",
             "docker compose up -d",
