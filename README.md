@@ -64,7 +64,7 @@ This project uses the [AWS CDK](https://aws.amazon.com/cdk/) (TypeScript) to dep
 1. `apt-get` installs Docker Engine, the Compose plugin, `unzip`, and `awscli`
 2. The `docker/` directory (Dockerfile + docker-compose.yml) is downloaded from S3 (uploaded automatically by CDK as an asset) and extracted to `/opt/kanban`
 3. `docker compose build && docker compose up -d` builds and starts the Kanban container
-4. A `tailscale/tailscale` container is started with `--net=host`, joining the instance to your Tailscale network under the hostname **dev-machine**
+4. A `tailscale/tailscale` container is started with `--net=host`, joining the instance to your Tailscale network under the hostname **dev-machine**. Tailscale state is persisted to `/opt/tailscale-state` on the host so the same device identity is reused across EC2 stop/start cycles (no duplicate devices on your tailnet)
 
 ---
 
@@ -115,16 +115,15 @@ npm install
 
 ### 3. Set your Tailscale auth key
 
-The EC2 UserData starts a Tailscale container using `TS_AUTHKEY`. Before deploying, open `lib/ec2-sleeper-stack.ts` and replace the placeholder with your real auth key:
+The EC2 UserData starts a Tailscale container using `TS_AUTHKEY`. Set the environment variable before deploying:
 
-```typescript
-// lib/ec2-sleeper-stack.ts  (~line 57)
-'  -e TS_AUTHKEY=YOUR_TAILSCALE_AUTH_KEY \\',
-//                ^^^^^^^^^^^^^^^^^^^^^^^^
-//  Replace with your actual key, e.g. tskey-auth-xxxxxxxxxxxxx
+```bash
+export TS_AUTHKEY=tskey-auth-xxxxxxxxxxxxx
 ```
 
-> **Security tip:** Avoid committing real auth keys to source control. Consider loading the key from an environment variable or AWS Secrets Manager and interpolating it at synth time.
+Create a **reusable** (not ephemeral) auth key at <https://login.tailscale.com/admin/settings/keys>. The key is read from the environment at `cdk synth` / `cdk deploy` time and baked into the EC2 UserData. Thanks to `TS_AUTH_ONCE=true`, the key is only used on the very first boot — subsequent stop/start cycles reuse the persisted Tailscale identity.
+
+> **Security tip:** Avoid committing real auth keys to source control. The stack reads the key from the `TS_AUTHKEY` environment variable at synth time.
 
 ### 4. Bootstrap CDK (first time only)
 
@@ -175,7 +174,7 @@ To restart the instance:
 aws ec2 start-instances --instance-ids i-0123456789abcdef0
 ```
 
-Or start it directly from the [EC2 console](https://console.aws.amazon.com/ec2/). Allow 1–2 minutes for the OS to boot; both the Kanban and Tailscale containers restart automatically (`restart: always` / `--restart unless-stopped`).
+Or start it directly from the [EC2 console](https://console.aws.amazon.com/ec2/). Allow 1–2 minutes for the OS to boot; both the Kanban and Tailscale containers restart automatically (`restart: always` / `--restart unless-stopped`). Tailscale state is persisted on disk (`/opt/tailscale-state`), so the same device identity and MagicDNS name are preserved — no new device appears on your tailnet.
 
 ### From a phone
 

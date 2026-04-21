@@ -61,7 +61,12 @@ export class Ec2SleeperStack extends cdk.Stack {
         }
 
         // Run Tailscale in a separate container for VPN access
+        // TS_STATE_DIR persists Tailscale identity across container restarts
+        // TS_AUTH_ONCE=true prevents re-authentication when state already exists,
+        //   so the same device is reused on EC2 stop/start cycles instead of
+        //   creating a new device on the tailnet each time
         userData.addCommands(
+            "mkdir -p /opt/tailscale-state",
             "docker run -d \\",
             "  --name tailscale \\",
             "  --restart unless-stopped \\",
@@ -69,8 +74,11 @@ export class Ec2SleeperStack extends cdk.Stack {
             "  --cap-add NET_ADMIN \\",
             "  --cap-add NET_RAW \\",
             "  -v /dev/net/tun:/dev/net/tun \\",
-            "  -v tailscale-state:/var/lib/tailscale \\",
+            "  -v /opt/tailscale-state:/var/lib/tailscale \\",
             `  -e TS_AUTHKEY=${TS_AUTHKEY} \\`,
+            "  -e TS_STATE_DIR=/var/lib/tailscale \\",
+            "  -e TS_AUTH_ONCE=true \\",
+            "  -e TS_HOSTNAME=dev-machine \\",
             "  --net=host \\",
             "  tailscale/tailscale:latest",
         );
